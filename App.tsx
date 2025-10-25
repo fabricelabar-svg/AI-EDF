@@ -14,6 +14,7 @@ import Evaluation from './components/Evaluation';
 import TrophiesPage from './components/TrophiesPage';
 import TrophyNotification from './components/TrophyNotification';
 import { gamificationManager } from './utils/gamification';
+import SourceCodeModal from './components/SourceCodeModal';
 
 type View = 'focus' | 'list' | 'quiz' | 'fill-blanks' | 'hangman' | 'srs' | 'trophies';
 
@@ -21,6 +22,7 @@ const App: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeView, setActiveView] = useState<View>('focus');
   const [selectedSeriesIndices, setSelectedSeriesIndices] = useState<number[]>([]);
+  const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
 
   // --- GAMIFICATION STATE ---
   const [streak, setStreak] = useState(0);
@@ -95,6 +97,7 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col">
       {notification && <TrophyNotification trophy={notification} onDismiss={() => setNotification(null)} />}
+      {isSourceModalOpen && <SourceCodeModal onClose={() => setIsSourceModalOpen(false)} />}
       <main className="flex-grow container mx-auto px-4 py-8">
         <Header streak={streak} />
 
@@ -165,7 +168,7 @@ const App: React.FC = () => {
         )}
 
       </main>
-      <Footer />
+      <Footer onShowSource={() => setIsSourceModalOpen(true)} />
     </div>
   );
 };

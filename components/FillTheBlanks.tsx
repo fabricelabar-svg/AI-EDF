@@ -28,7 +28,7 @@ const FillTheBlanks: React.FC<{ verbs: Verb[] }> = ({ verbs }) => {
   const [score, setScore] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = useMemo(() => new GoogleGenAI({ apiKey: process.env.API_KEY }), []);
 
   const shuffleArray = <T,>(array: T[]): T[] => [...array].sort(() => Math.random() - 0.5);
 
@@ -62,15 +62,20 @@ Provide the response in the requested JSON format. The sentences should be varie
   };
 
   useEffect(() => {
+    let isMounted = true;
+
     const generateSentences = async () => {
+        if (!isMounted) return;
         setIsLoading(true);
         setError(null);
         setSentences([]);
 
         const usableVerbs = verbs.filter(v => v.nl.preterite !== '-' && v.nl.participle !== '-');
         if (usableVerbs.length === 0) {
-            setError("Aucun verbe compatible pour cet exercice dans les séries sélectionnées.");
-            setIsLoading(false);
+            if (isMounted) {
+                setError("Aucun verbe compatible pour cet exercice dans les séries sélectionnées.");
+                setIsLoading(false);
+            }
             return;
         }
 
@@ -121,18 +126,29 @@ Provide the response in the requested JSON format. The sentences should be varie
             if (processedSentences.length < 5) {
                 throw new Error("L'IA n'a pas pu générer suffisamment de phrases. Veuillez réessayer.");
             }
+            
+            if (isMounted) {
+              setSentences(processedSentences);
+            }
 
-            setSentences(processedSentences);
         } catch (err) {
             console.error("Error generating sentences:", err);
-            setError("Désolé, une erreur est survenue lors de la création de l'exercice. Veuillez changer de série ou réessayer.");
+            if (isMounted) {
+              setError("Désolé, une erreur est survenue lors de la création de l'exercice. Veuillez changer de série ou réessayer.");
+            }
         } finally {
-            setIsLoading(false);
+            if (isMounted) {
+              setIsLoading(false);
+            }
         }
     };
 
     generateSentences();
-  }, [verbs]);
+
+    return () => {
+        isMounted = false;
+    };
+  }, [verbs, ai]);
 
   const handleRestart = () => {
     setIsFinished(false);
@@ -142,6 +158,7 @@ Provide the response in the requested JSON format. The sentences should be varie
     setFeedback(null);
     setSentences([]); 
     setIsLoading(true);
+    // The useEffect will trigger a regeneration of sentences
   }
   
   if (isLoading) {

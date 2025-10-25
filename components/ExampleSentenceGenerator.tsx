@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import type { Verb, ExampleSentence } from '../types';
 
@@ -12,7 +12,7 @@ const ExampleSentenceGenerator: React.FC<ExampleSentenceGeneratorProps> = ({ ver
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = useMemo(() => new GoogleGenAI({ apiKey: process.env.API_KEY }), []);
 
   const fetchExamples = async (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card flip or other parent events
