@@ -36,3 +36,9 @@ export interface Trophy {
   description: string;
   icon: string;
 }
+
+export interface LeaderboardScore {
+  time: number; // in seconds
+  date: string; // ISO string date
+  name: string;
+}

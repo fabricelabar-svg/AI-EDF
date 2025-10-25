@@ -55,4 +55,16 @@ export const allTrophies: Trophy[] = [
     description: 'Maintiens une série de 30 jours.',
     icon: '🌋',
   },
+  {
+    id: 'matching_first_game',
+    name: "Le Vif-Argent",
+    description: "Termine ton premier Jeu d'Association.",
+    icon: '🔗',
+  },
+  {
+    id: 'matching_speed_demon',
+    name: "Vitesse de l'Éclair",
+    description: "Termine un Jeu d'Association en moins de 30 secondes.",
+    icon: '⚡',
+  },
 ];

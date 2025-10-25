@@ -92,7 +92,7 @@ class GamificationManager {
   public recordView(view: string): void {
     try {
       // We only care about exercise views for the explorer trophy
-      const exerciseViews = ['focus', 'quiz', 'fill-blanks', 'hangman', 'srs'];
+      const exerciseViews = ['focus', 'quiz', 'matching', 'hangman', 'srs'];
       if (!exerciseViews.includes(view)) return;
 
       const stored = localStorage.getItem(VIEWS_KEY);
@@ -116,6 +116,9 @@ class GamificationManager {
         break;
       case 'hangman_won':
         this.checkHangmanTrophies(detail);
+        break;
+      case 'matching_game_completed':
+        this.checkMatchingGameTrophies(detail);
         break;
       case 'srs_data_updated':
         this.checkSrsTrophies(detail);
@@ -144,6 +147,13 @@ class GamificationManager {
   private checkHangmanTrophies(data: { errors: number }): void {
     if (data.errors < 4) {
       this.unlockTrophy('hangman_ace');
+    }
+  }
+
+  private checkMatchingGameTrophies(data: { time: number }): void {
+    this.unlockTrophy('matching_first_game');
+    if (data.time < 30) {
+      this.unlockTrophy('matching_speed_demon');
     }
   }
   

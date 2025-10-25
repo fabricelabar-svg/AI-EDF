@@ -79,8 +79,8 @@ import Header from './components/Header';
 import SearchBar from './components/SearchBar';
 import Footer from './components/Footer';
 import Quiz from './components/Quiz';
-import FillTheBlanks from './components/FillTheBlanks';
-import FocusView from './components/FocusView';
+import MatchingGame from './components/MatchingGame';
+import FlipCardView from './components/FlipCardView';
 import Hangman from './components/Hangman';
 import SeriesSelector from './components/SeriesSelector';
 import SearchResultItem from './components/SearchResultItem';
@@ -90,7 +90,7 @@ import TrophyNotification from './components/TrophyNotification';
 import { gamificationManager } from './utils/gamification';
 import SourceCodeModal from './components/SourceCodeModal';
 
-type View = 'focus' | 'list' | 'quiz' | 'fill-blanks' | 'hangman' | 'srs' | 'trophies';
+type View = 'focus' | 'list' | 'quiz' | 'matching' | 'hangman' | 'srs' | 'trophies';
 
 const App: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -166,7 +166,7 @@ const App: React.FC = () => {
     );
   };
   
-  const isExerciseView = ['focus', 'quiz', 'hangman', 'fill-blanks', 'srs'].includes(activeView);
+  const isExerciseView = ['focus', 'quiz', 'hangman', 'matching', 'srs'].includes(activeView);
   
   return (
     <div className="min-h-screen flex flex-col">
@@ -177,9 +177,9 @@ const App: React.FC = () => {
 
         {/* Tab Navigation */}
         <div className="flex justify-center flex-wrap gap-x-4 gap-y-2 mb-8">
-          <TabButton view="focus" label="Étude Focus" />
+          <TabButton view="focus" label="Flashcards" />
           <TabButton view="quiz" label="Quiz" />
-          <TabButton view="fill-blanks" label="Phrases à Compléter" />
+          <TabButton view="matching" label="Jeu d'Association" />
           <TabButton view="hangman" label="Jeu du Pendu" />
           <TabButton view="srs" label="Évaluation" />
           <TabButton view="trophies" label="Trophées" />
@@ -231,10 +231,10 @@ const App: React.FC = () => {
                   </h2>
                 </div>
 
-                {activeView === 'focus' && <FocusView verbs={activeVerbs} />}
+                {activeView === 'focus' && <FlipCardView verbs={activeVerbs} />}
                 {activeView === 'quiz' && <Quiz verbs={activeVerbs} />}
                 {activeView === 'hangman' && <Hangman verbs={activeVerbs} />}
-                {activeView === 'fill-blanks' && <FillTheBlanks verbs={activeVerbs} />}
+                {activeView === 'matching' && <MatchingGame verbs={activeVerbs} />}
                 {activeView === 'srs' && <Evaluation verbs={activeVerbs} />}
               </>
             )}
@@ -248,436 +248,332 @@ const App: React.FC = () => {
 };
 
 export default App;`,
-  'components/FillTheBlanks.tsx': `import React, { useState, useEffect, useMemo } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
+  'components/MatchingGame.tsx': `import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Verb } from '../types';
+import { leaderboardManager } from '../utils/leaderboard';
+import LeaderboardPodium from './LeaderboardPodium';
+import { recordGameEvent } from '../utils/gamification';
 
-interface GeneratedSentence {
-  sentence_with_blank: string;
-  correct_answer: string;
-  verb_infinitive: string;
+const GAME_SIZE = 6;
+
+const shuffleArray = <T,>(array: T[]): T[] => {
+  return [...array].sort(() => Math.random() - 0.5);
+};
+
+const formatTime = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return \`\${minutes}:\${secs.toString().padStart(2, '0')}\`;
+};
+
+interface MatchItem {
+  id: string; // Using infinitive as ID
+  text: string;
 }
 
-interface ExerciseSentence {
-  start: string;
-  end: string;
-  answer: string;
-  verb: Verb;
-  tense: 'prétérit' | 'participe passé';
-}
+const MatchingGame: React.FC<{ verbs: Verb[] }> = ({ verbs }) => {
+  const [gameState, setGameState] = useState<'playing' | 'finished'>('playing');
+  const [gameId, setGameId] = useState(0); // Used to trigger podium refresh
+  const [gameVerbs, setGameVerbs] = useState<Verb[]>([]);
+  const [leftItems, setLeftItems] = useState<MatchItem[]>([]);
+  const [rightItems, setRightItems] = useState<MatchItem[]>([]);
+  
+  const [selectedLeftId, setSelectedLeftId] = useState<string | null>(null);
+  const [matchedPairs, setMatchedPairs] = useState<Set<string>>(new Set());
+  const [incorrectPair, setIncorrectPair] = useState<[string, string] | null>(null);
+  
+  const [time, setTime] = useState(0);
+  const timerRef = useRef<number | null>(null);
+  const [finalTime, setFinalTime] = useState<number | null>(null);
 
-const EXERCISE_LENGTH = 10;
+  // Name management state
+  const [showNamePrompt, setShowNamePrompt] = useState(false);
+  const [tempUsername, setTempUsername] = useState('');
 
-const FillTheBlanks: React.FC<{ verbs: Verb[] }> = ({ verbs }) => {
-  const [sentences, setSentences] = useState<ExerciseSentence[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [userAnswer, setUserAnswer] = useState('');
-  const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
-  const [score, setScore] = useState(0);
-  const [isFinished, setIsFinished] = useState(false);
+  const setupGame = useCallback(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
 
-  const ai = useMemo(() => new GoogleGenAI({ apiKey: process.env.API_KEY }), []);
+    const availableVerbs = verbs.filter(v => v.fr && v.nl.infinitive && v.nl.infinitive !== '-');
+    const shuffled = shuffleArray(availableVerbs);
+    const selected = shuffled.slice(0, GAME_SIZE);
 
-  const shuffleArray = <T,>(array: T[]): T[] => [...array].sort(() => Math.random() - 0.5);
+    if (selected.length < 2) {
+      setGameVerbs([]);
+      return;
+    }
 
-  const generatePrompt = (selectedVerbs: Verb[]) => {
-    const verbListString = selectedVerbs.map(v => 
-        \`- \${v.nl.infinitive} (prétérit: \${v.nl.preterite}, participe passé: \${v.nl.participle})\`
-    ).join('\\n');
+    setGameVerbs(selected);
+    setLeftItems(selected.map(v => ({ id: v.nl.infinitive, text: v.fr })));
+    setRightItems(shuffleArray(selected.map(v => ({ id: v.nl.infinitive, text: v.nl.infinitive }))));
+    
+    // Reset state
+    setGameState('playing');
+    setSelectedLeftId(null);
+    setMatchedPairs(new Set());
+    setIncorrectPair(null);
+    setTime(0);
+    setFinalTime(null);
+    setShowNamePrompt(false);
+    setTempUsername('');
+    setGameId(prev => prev + 1);
 
-    return \`You are a Dutch language teacher creating a fill-in-the-blanks exercise.
-From the following list of verbs, create \${EXERCISE_LENGTH} unique and simple Dutch sentences for a beginner.
-Each sentence must use either the prétérit or the participe passé form of one of the verbs.
-In each sentence, replace the verb form with a "___" placeholder.
+    timerRef.current = window.setInterval(() => {
+        setTime(prev => prev + 1);
+    }, 1000);
 
-Verb list:
-\${verbListString}
+  }, [verbs]);
 
-Provide the response in the requested JSON format. The sentences should be varied.\`;
+  useEffect(() => {
+    setupGame();
+    return () => {
+        if (timerRef.current) clearInterval(timerRef.current);
+    }
+  }, [setupGame]);
+
+  const handleLeftClick = (id: string) => {
+    if (matchedPairs.has(id) || incorrectPair) return;
+    setSelectedLeftId(id);
   };
 
-  const schema = {
-    type: Type.ARRAY,
-    items: {
-        type: Type.OBJECT,
-        properties: {
-            sentence_with_blank: { type: Type.STRING, description: "The Dutch sentence with '___' as a placeholder for the verb." },
-            correct_answer: { type: Type.STRING, description: "The correct Dutch verb form that fits in the blank." },
-            verb_infinitive: { type: Type.STRING, description: "The infinitive of the verb used." },
-        },
-        required: ["sentence_with_blank", "correct_answer", "verb_infinitive"],
-    },
+  const handleRightClick = (id: string) => {
+    if (!selectedLeftId || matchedPairs.has(selectedLeftId) || incorrectPair) return;
+
+    if (selectedLeftId === id) {
+      // Correct match
+      setMatchedPairs(prev => new Set(prev).add(id));
+      setSelectedLeftId(null);
+    } else {
+      // Incorrect match
+      setIncorrectPair([selectedLeftId, id]);
+      setSelectedLeftId(null);
+      setTimeout(() => {
+        setIncorrectPair(null);
+      }, 700);
+    }
   };
 
   useEffect(() => {
-    let isMounted = true;
+    if (gameState === 'playing' && gameVerbs.length > 0 && matchedPairs.size === gameVerbs.length) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      const capturedTime = time;
+      setFinalTime(capturedTime);
+      recordGameEvent('matching_game_completed', { time: capturedTime });
+      
+      const currentUsername = leaderboardManager.getUserName();
+      if (currentUsername === 'Anonyme') {
+          setShowNamePrompt(true);
+      } else {
+          leaderboardManager.addScore('matching', capturedTime);
+          setGameId(prev => prev + 1);
+      }
+      
+      setTimeout(() => {
+        setGameState('finished');
+      }, 500);
+    }
+  }, [matchedPairs, gameVerbs, time, gameState]);
 
-    const generateSentences = async () => {
-        if (!isMounted) return;
-        setIsLoading(true);
-        setError(null);
-        setSentences([]);
-
-        const usableVerbs = verbs.filter(v => v.nl.preterite !== '-' && v.nl.participle !== '-');
-        if (usableVerbs.length === 0) {
-            if (isMounted) {
-                setError("Aucun verbe compatible pour cet exercice dans les séries sélectionnées.");
-                setIsLoading(false);
-            }
-            return;
-        }
-
-        const selectedVerbs = shuffleArray(usableVerbs).slice(0, EXERCISE_LENGTH);
-        const prompt = generatePrompt(selectedVerbs);
-
-        try {
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
-                config: {
-                  responseMimeType: "application/json",
-                  responseSchema: schema,
-                },
-            });
-            
-            const resultText = response.text.trim();
-            const resultJson: GeneratedSentence[] = JSON.parse(resultText);
-
-            const processedSentences = resultJson.map((item): ExerciseSentence | null => {
-                const [start, end] = item.sentence_with_blank.split('___');
-                const verb = verbs.find(v => v.nl.infinitive === item.verb_infinitive);
-                if (!verb) return null;
-
-                let tense: 'prétérit' | 'participe passé' | null = null;
-                const correctAnswer = item.correct_answer.trim().toLowerCase();
-                
-                const preteriteForms = verb.nl.preterite.toLowerCase().split('/').map(f => f.trim());
-                const participleWords = verb.nl.participle.toLowerCase().split(' ').map(w => w.trim());
-
-                if (preteriteForms.includes(correctAnswer)) {
-                    tense = 'prétérit';
-                } else if (participleWords.includes(correctAnswer)) {
-                    tense = 'participe passé';
-                }
-
-                if (!tense) return null; // Discard sentence if tense can't be determined
-
-                return {
-                    start: start || '',
-                    end: end || '',
-                    answer: item.correct_answer,
-                    verb: verb,
-                    tense: tense,
-                };
-            }).filter((s): s is ExerciseSentence => s !== null);
-
-            if (processedSentences.length < 5) {
-                throw new Error("L'IA n'a pas pu générer suffisamment de phrases. Veuillez réessayer.");
-            }
-            
-            if (isMounted) {
-              setSentences(processedSentences);
-            }
-
-        } catch (err) {
-            console.error("Error generating sentences:", err);
-            if (isMounted) {
-              setError("Désolé, une erreur est survenue lors de la création de l'exercice. Veuillez changer de série ou réessayer.");
-            }
-        } finally {
-            if (isMounted) {
-              setIsLoading(false);
-            }
-        }
-    };
-
-    generateSentences();
-
-    return () => {
-        isMounted = false;
-    };
-  }, [verbs, ai]);
-
-  const handleRestart = () => {
-    setIsFinished(false);
-    setScore(0);
-    setCurrentIndex(0);
-    setUserAnswer('');
-    setFeedback(null);
-    setSentences([]); 
-    setIsLoading(true);
-    // The useEffect will trigger a regeneration of sentences
-  }
-  
-  if (isLoading) {
-    return (
-      <div className="text-center mt-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto"></div>
-        <p className="text-slate-600 mt-4">Génération de l'exercice en cours...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center mt-12 bg-white p-8 rounded-xl shadow-lg max-w-md mx-auto">
-        <h2 className="text-2xl font-bold text-red-600 mb-4">Erreur</h2>
-        <p className="text-slate-600 mb-6">{error}</p>
-        <button onClick={handleRestart} className="bg-orange-600 text-white font-bold py-3 px-8 rounded-full hover:bg-orange-700">
-            Réessayer
-        </button>
-      </div>
-    );
-  }
-  
-  if (isFinished) {
-    return (
-      <div className="text-center mt-12 bg-white p-8 rounded-xl shadow-lg max-w-md mx-auto">
-        <h2 className="text-3xl font-bold mb-4">Exercice Terminé !</h2>
-        <p className="text-xl text-slate-700 mb-6">
-          Ton score : <span className="font-extrabold text-orange-600">{score}</span> sur <span className="font-extrabold text-orange-600">{sentences.length}</span>.
-        </p>
-        <button onClick={handleRestart} className="bg-orange-600 text-white font-bold py-3 px-8 rounded-full hover:bg-orange-700">
-            Recommencer
-        </button>
-      </div>
-    );
-  }
-  
-  if (sentences.length === 0) {
-      return <div></div>; // Should be covered by loading/error states
-  }
-
-  const currentSentence = sentences[currentIndex];
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleNameSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (feedback) return;
-    
-    const isCorrect = userAnswer.trim().toLowerCase() === currentSentence.answer.toLowerCase();
-    
-    if (isCorrect) {
-      setScore(s => s + 1);
-      setFeedback('correct');
-    } else {
-      setFeedback('incorrect');
+    const nameToSave = tempUsername.trim();
+    if (nameToSave && finalTime !== null) {
+      leaderboardManager.setUserName(nameToSave);
+      leaderboardManager.addScore('matching', finalTime);
+      setShowNamePrompt(false);
+      setGameId(prev => prev + 1);
     }
   };
 
-  const handleNext = () => {
-    if (currentIndex < sentences.length - 1) {
-      setCurrentIndex(i => i + 1);
-      setUserAnswer('');
-      setFeedback(null);
-    } else {
-      setIsFinished(true);
+  const getItemClasses = (id: string, side: 'left' | 'right') => {
+    let base = "w-full p-4 rounded-lg border-2 text-center cursor-pointer transition-all duration-200";
+    
+    if (matchedPairs.has(id)) {
+        return \`\${base} bg-green-100 border-green-400 text-green-800 cursor-not-allowed opacity-60 line-through\`;
     }
+    
+    if (incorrectPair && ((side === 'left' && incorrectPair[0] === id) || (side === 'right' && incorrectPair[1] === id))) {
+        return \`\${base} bg-red-100 border-red-500 animate-shake\`;
+    }
+    
+    if (side === 'left' && selectedLeftId === id) {
+        return \`\${base} bg-orange-100 border-orange-500 ring-2 ring-orange-400\`;
+    }
+    
+    return \`\${base} bg-white border-slate-300 hover:bg-slate-50 hover:border-orange-400\`;
   };
+
+  if (gameVerbs.length < 2) {
+    return (
+        <div className="text-center p-8 text-slate-500 bg-white rounded-lg shadow-md max-w-md mx-auto">
+            <h3 className="text-xl font-semibold">Pas assez de verbes</h3>
+            <p className="mt-2">Il n'y a pas assez de verbes dans cette série pour jouer. Veuillez sélectionner une autre série.</p>
+        </div>
+    );
+  }
+
+  if (gameState === 'finished') {
+    return (
+        <div className="text-center mt-12 bg-white p-8 rounded-xl shadow-lg max-w-md mx-auto">
+            <h2 className="text-3xl font-bold text-green-600 mb-4">🎉 Excellent !</h2>
+            <p className="text-slate-700 mb-2">
+            Tu as associé tous les verbes correctement.
+            </p>
+            <p className="text-2xl font-bold text-slate-800 mb-6">
+                Ton temps : {formatTime(finalTime || 0)}
+            </p>
+
+            {showNamePrompt ? (
+                <form onSubmit={handleNameSave} className="mt-4 border-t pt-4">
+                    <label htmlFor="username" className="block font-semibold mb-2 text-slate-700">Entre ton nom pour le classement !</label>
+                    <input
+                        id="username"
+                        type="text"
+                        value={tempUsername}
+                        onChange={(e) => setTempUsername(e.target.value)}
+                        placeholder="Ton nom"
+                        className="w-full text-center py-2 px-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        autoFocus
+                    />
+                    <button
+                        type="submit"
+                        disabled={!tempUsername.trim()}
+                        className="w-full mt-3 bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 disabled:bg-slate-400"
+                    >
+                        Enregistrer mon score
+                    </button>
+                </form>
+            ) : (
+                 <button
+                    onClick={setupGame}
+                    className="bg-orange-600 text-white font-bold py-3 px-8 rounded-full hover:bg-orange-700 transition-colors duration-300 shadow-lg"
+                >
+                    Rejouer
+                </button>
+            )}
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-2xl mx-auto mt-8">
-       <div className="mb-6">
-        <div className="flex justify-between items-center mb-2 text-slate-600 font-semibold">
-          <span>Question</span>
-          <span className="font-bold text-base">{ \`\${currentIndex + 1} / \${sentences.length}\` }</span>
+    <div className="max-w-3xl mx-auto">
+        <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold">Jeu d'Association</h2>
+            <p className="text-slate-600 mt-2">Associe le verbe français à son infinitif en néerlandais le plus vite possible.</p>
         </div>
-        <div className="w-full bg-slate-200 rounded-full h-2.5">
-          <div 
-            className="bg-orange-500 h-2.5 rounded-full transition-all duration-300 ease-in-out" 
-            style={{ width: \`\${((currentIndex + 1) / sentences.length) * 100}%\` }}
-          ></div>
-        </div>
-        <p className="text-md text-slate-500 text-right mt-2">Score: {score}</p>
-      </div>
 
-      <div className={\`bg-white rounded-xl shadow-lg p-6 sm:p-8 transition-all duration-300 border-2 \${
-        feedback === 'correct' ? 'border-green-500' : feedback === 'incorrect' ? 'border-red-500' : 'border-transparent'
-      }\`}>
-        <p className="text-center text-slate-600 mb-6">
-          Complète la phrase avec la forme correcte de : <span className="font-bold text-orange-600">{currentSentence.verb.nl.infinitive}</span>
-          {' '}<span className="text-sm text-slate-500 capitalize">({currentSentence.tense})</span>
-        </p>
+        <div className="flex justify-center items-center gap-2 text-center mb-6 text-2xl font-bold text-slate-700 bg-white py-2 px-4 rounded-lg shadow-md max-w-xs mx-auto">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="font-mono">{formatTime(time)}</span>
+        </div>
         
-        <form onSubmit={handleSubmit} className="text-center text-xl sm:text-2xl font-semibold text-slate-800">
-          <span>{currentSentence.start}</span>
-          <input
-            type="text"
-            value={userAnswer}
-            onChange={(e) => setUserAnswer(e.target.value)}
-            disabled={!!feedback}
-            className={\`inline-block w-40 text-center mx-2 px-2 py-1 border-b-2 bg-transparent focus:outline-none transition \${
-                !feedback ? 'border-slate-400 focus:border-orange-500'
-                : feedback === 'correct' ? 'border-green-500 text-green-600'
-                : 'border-red-500 text-red-600'
-            }\`}
-            autoFocus
-            aria-label="Ta réponse"
-          />
-          <span>{currentSentence.end}</span>
-          
-          {!feedback && (
-            <button
-              type="submit"
-              className="w-full mt-8 bg-orange-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-orange-700 transition-colors duration-300 disabled:bg-slate-400"
-              disabled={!userAnswer.trim()}
-            >
-              Vérifier
-            </button>
-          )}
-        </form>
+        <div className="grid grid-cols-2 gap-4 sm:gap-8">
+            {/* Left Column (French) */}
+            <div className="space-y-4">
+                {leftItems.map(item => (
+                    <button 
+                        key={item.id}
+                        onClick={() => handleLeftClick(item.id)}
+                        disabled={matchedPairs.has(item.id)}
+                        className={getItemClasses(item.id, 'left')}
+                    >
+                        <span className="font-semibold text-lg capitalize">{item.text}</span>
+                    </button>
+                ))}
+            </div>
+            
+            {/* Right Column (Dutch) */}
+            <div className="space-y-4">
+                 {rightItems.map(item => (
+                    <button 
+                        key={item.id}
+                        onClick={() => handleRightClick(item.id)}
+                        disabled={!selectedLeftId || matchedPairs.has(item.id)}
+                        className={\`\${getItemClasses(item.id, 'right')} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:border-slate-200\`}
+                    >
+                         <span className="font-semibold text-lg">{item.text}</span>
+                    </button>
+                ))}
+            </div>
+        </div>
 
-        {feedback && (
-          <div className="mt-6 text-center" aria-live="polite">
-            {feedback === 'correct' ? (
-              <p className="text-xl font-bold text-green-600">🎉 Correct !</p>
-            ) : (
-              <div>
-                <p className="text-xl font-bold text-red-600">Oups...</p>
-                <p className="text-md text-slate-600 mt-2">
-                  La bonne réponse était : <span className="font-bold">{currentSentence.answer}</span>
-                </p>
-              </div>
-            )}
-            <button
-              onClick={handleNext}
-              className="w-full mt-4 bg-slate-800 text-white font-bold py-3 px-6 rounded-lg hover:bg-slate-900 transition-colors duration-300"
-            >
-              {currentIndex < sentences.length - 1 ? 'Question suivante' : 'Voir les résultats'}
-            </button>
-          </div>
-        )}
-      </div>
+        <LeaderboardPodium game="matching" gameId={gameId} />
+
+        <style>
+        {\`
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+          }
+          .animate-shake {
+            animation: shake 0.5s ease-in-out;
+          }
+        \`}
+        </style>
     </div>
   );
 };
 
-export default FillTheBlanks;`,
-  'components/ExampleSentenceGenerator.tsx': `import React, { useState, useMemo } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
-import type { Verb, ExampleSentence } from '../types';
+export default MatchingGame;
+`,
+  'components/LeaderboardPodium.tsx': `import React, { useState, useEffect } from 'react';
+import { leaderboardManager } from '../utils/leaderboard';
+import type { LeaderboardScore } from '../types';
 
-interface ExampleSentenceGeneratorProps {
-    verb: Verb;
-    theme: 'light' | 'dark';
+interface LeaderboardPodiumProps {
+    game: string;
+    gameId: number; // A changing key to trigger re-fetches
 }
 
-const ExampleSentenceGenerator: React.FC<ExampleSentenceGeneratorProps> = ({ verb, theme }) => {
-  const [examples, setExamples] = useState<ExampleSentence[] | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const ai = useMemo(() => new GoogleGenAI({ apiKey: process.env.API_KEY }), []);
-
-  const fetchExamples = async (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card flip or other parent events
-    if (isLoading) return;
-    setIsLoading(true);
-    setExamples(null);
-    setError(null);
-
-    const prompt = \`You are a helpful language assistant. For the Dutch verb "\${verb.nl.infinitive}" (French: "\${verb.fr}"), generate two simple and distinct example sentences for a beginner. One sentence should use the prétérit form (e.g., from "\${verb.nl.preterite}") and the other should use the participe passé form ("\${verb.nl.participle}"). For each sentence, provide the French translation. Ensure the sentences are practical and easy to understand.\`;
-    
-    const schema = {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            nl_sentence: { type: Type.STRING, description: "The example sentence in Dutch." },
-            fr_sentence: { type: Type.STRING, description: "The French translation of the sentence." },
-          },
-          required: ["nl_sentence", "fr_sentence"],
-        },
-    };
-
-    try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-              responseMimeType: "application/json",
-              responseSchema: schema,
-            },
-        });
-        
-        const resultText = response.text.trim();
-        const resultJson: ExampleSentence[] = JSON.parse(resultText);
-        setExamples(resultJson);
-
-    } catch (err) {
-      console.error("Error fetching examples from Gemini API:", err);
-      setError("Désolé, impossible de générer des exemples pour le moment.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  const themeClasses = {
-    light: {
-        spinner: "border-slate-500",
-        error: "text-red-600 bg-red-100",
-        container: "p-4 bg-slate-100 rounded-lg border border-slate-200",
-        title: "font-bold text-slate-800 mb-2",
-        exampleNl: "font-semibold text-slate-800",
-        exampleFr: "text-slate-600 italic",
-        buttonContainer: "text-center",
-        button: "bg-slate-200 text-slate-700 hover:bg-slate-300",
-    },
-    dark: {
-        spinner: "border-white",
-        error: "text-yellow-300 bg-black/30",
-        container: "", // no extra container on dark theme
-        title: "",
-        exampleNl: "font-semibold text-white",
-        exampleFr: "text-slate-200 italic",
-        buttonContainer: "",
-        button: "bg-white/90 text-orange-700 hover:bg-white",
-    }
-  };
-
-  const currentTheme = themeClasses[theme];
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center mt-4" onClick={e => e.stopPropagation()}>
-        <div className={\`animate-spin rounded-full h-8 w-8 border-b-2 \${currentTheme.spinner}\`}></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return <p className={\`mt-4 text-sm p-2 rounded text-center \${currentTheme.error}\`} onClick={e => e.stopPropagation()}>{error}</p>;
-  }
-
-  if (examples) {
-    return (
-      <div className={\`mt-4 text-left w-full space-y-3 \${currentTheme.container}\`} onClick={e => e.stopPropagation()}>
-        {theme === 'light' && <h4 className={currentTheme.title}>Exemples d'utilisation :</h4>}
-        {examples.map((ex, index) => (
-          <div key={index} className={theme === 'dark' ? 'p-3 bg-black/20 rounded-lg' : ''}>
-            <p className={currentTheme.exampleNl}>🇳🇱 {ex.nl_sentence}</p>
-            <p className={currentTheme.exampleFr}>🇫🇷 {ex.fr_sentence}</p>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className={currentTheme.buttonContainer} onClick={e => e.stopPropagation()}>
-      <button
-        onClick={fetchExamples}
-        className={\`mt-4 font-bold py-2 px-5 rounded-full transition-transform duration-200 hover:scale-105 shadow-sm text-sm \${currentTheme.button}\`}
-      >
-        Voir des exemples ✨
-      </button>
-    </div>
-  );
+const formatTime = (seconds: number) => {
+    if (seconds === Infinity || typeof seconds !== 'number') return "-:--";
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return \`\${minutes}:\${secs.toString().padStart(2, '0')}\`;
 };
 
-export default ExampleSentenceGenerator;`,
-  // Other files remain unchanged, so their source code is copied from the original prompt
+const PodiumPlace: React.FC<{ rank: number; score?: LeaderboardScore; icon: string }> = ({ rank, score, icon }) => {
+    const time = score ? formatTime(score.time) : "-:--";
+    const name = score ? score.name : '???';
+    const date = score ? new Date(score.date).toLocaleDateString('fr-FR') : 'N/A';
+    
+    const heightClasses: { [key: number]: string } = { 1: 'h-40', 2: 'h-32', 3: 'h-24' };
+    const bgColorClasses: { [key: number]: string } = { 1: 'bg-amber-400', 2: 'bg-slate-400', 3: 'bg-yellow-700' };
+
+    return (
+        <div className="flex flex-col items-center w-32">
+            <p className="text-4xl">{icon}</p>
+            <div className={\`w-full text-center rounded-t-lg flex flex-col justify-center items-center p-2 text-white font-bold \${heightClasses[rank]} \${bgColorClasses[rank]}\`}>
+                <span className="text-lg font-semibold truncate w-full px-1">{name}</span>
+                <span className="text-2xl my-1">{time}</span>
+                <span className="text-xs opacity-80">{date}</span>
+            </div>
+        </div>
+    );
+};
+
+const LeaderboardPodium: React.FC<LeaderboardPodiumProps> = ({ game, gameId }) => {
+    const [scores, setScores] = useState<LeaderboardScore[]>([]);
+
+    useEffect(() => {
+        setScores(leaderboardManager.getScores(game));
+    }, [game, gameId]);
+
+    return (
+        <div className="w-full mt-12 p-6 bg-white rounded-xl shadow-lg border border-slate-200">
+            <h3 className="text-2xl font-bold text-center text-slate-800 mb-6">🏆 Podium des Meilleurs Temps</h3>
+            <div className="flex justify-center items-end gap-2 sm:gap-4">
+                <PodiumPlace rank={2} score={scores[1]} icon="🥈" />
+                <PodiumPlace rank={1} score={scores[0]} icon="🥇" />
+                <PodiumPlace rank={3} score={scores[2]} icon="🥉" />
+            </div>
+        </div>
+    );
+};
+
+export default LeaderboardPodium;`,
   'types.ts': `export interface Verb {
   fr: string;
   nl: {
@@ -715,135 +611,69 @@ export interface Trophy {
   name: string;
   description: string;
   icon: string;
-}`,
-  'data/verbs.ts': `import type { Verb } from '../types';
+}
 
-const rawVerbsData: string = \`
-cuire,bakken / bakte/bakten / gebakken
-commencer,beginnen / begon/begonnen / begonnen zijn
-comprendre,begrijpen / begreep/begrepen / begrepen
-décrire,beschrijven / beschreef/beschreven / beschreven
-décider,besluiten / besloot/besloten / besloten
-exister,bestaan / bestond/bestonden / bestaan
-plaire,bevallen / beviel/bevielen / bevallen zijn
-bouger,bewegen / bewoog/bewogen / bewogen
-prouver,bewijzen / bewees/bewezen / bewezen
-visiter,bezoeken / bezocht/bezochten / bezocht
-offrir,bieden / bood/boden / geboden
-rester,blijven / bleef/bleven / gebleven zijn
-casser,breken / brak/braken / gebroken
-apporter,brengen / bracht/brachten / gebracht
-penser,denken / dacht/dachten / gedacht
-faire/mettre,doen / deed/deden / gedaan
-porter,dragen / droeg/droegen / gedragen
-boire,drinken / dronk/dronken / gedronken
-plonger,duiken / dook/doken / gedoken
-manger,eten / at/aten / gegeten
-aller,gaan / ging/gingen / gegaan zijn
-guérir,genezen / genas/genazen / genezen
-donner,geven / gaf/gaven / gegeven
-pendre,hangen / hing/hingen / gehangen
-avoir,hebben / had/hadden / gehad
-aider,helpen / hielp/hielpen / geholpen
-s'appeler,heten / heette/heetten / geheten
-tenir,houden / hield/hielden / gehouden
-choisir,kiezen / koos/kozen / gekozen
-regarder,kijken / keek/keken / gekeken
-grimper,klimmen / klom/klommen / geklommen
-venir,komen / kwam/kwamen / gekomen zijn
-acheter,kopen / kocht/kochten / gekocht
-recevoir,krijgen / kreeg/kregen / gekregen
-pouvoir (capacité),kunnen / kon/konden / /
-rire,lachen / lachte/lachten / gelachen
-laisser,laten / liet/lieten / gelaten
-lire,lezen / las/lazen / gelezen
-mentir,liegen / loog/logen / gelogen
-être couché,liggen / lag/lagen / gelegen
-courir,lopen / liep/liepen / gelopen zijn
-devoir (obligation),moeten / moest/moesten / /
-pouvoir (permission),mogen / mocht/mochten / /
-prendre,nemen / nam/namen / genomen
-recevoir,ontvangen / ontving/ontvingen / ontvangen
-rouler,rijden / reed/reden / gereden
-crier/appeler,roepen / riep/riepen / geroepen
-sentir (odorat),ruiken / rook/roken / geroken
-donner en cadeau/verser,schenken / schonk/schonken / geschonken
-tirer/arme,schieten / schoot/schoten / geschoten
-sembler/briller,schijnen / scheen/schenen / geschenen
-écrire,schrijven / schreef/schreven / geschreven
-(s')effrayer,schrikken / schrok/schrokken / geschrokken
-frapper/battre,slaan / sloeg/sloegen / geslagen
-dormir,slapen / sliep/sliepen / geslapen
-fermer,sluiten / sloot/sloten / gesloten
-couper,snijden / sneed/sneden / gesneden
-parler,spreken / sprak/spraken / gesproken
-sauter,springen / sprong/sprongen / gesprongen
-être debout,staan / stond/stonden / gestaan
-voler (voleur),stelen / stal/stalen / gestolen
-mourir,sterven / stierf/stierven / gestorven zijn
-monter/s'élever,stijgen / steeg/stegen / gestegen zijn
-repasser,strijken / streek/streken / gestreken
-tirer,trekken / trok/trokken / getrokken
-tomber,vallen / viel/vielen / gevallen zijn
-saisir/attraper,vangen / ving/vingen / gevangen
-se battre,vechten / vocht/vochten / gevochten
-cacher,verbergen / verborg/verborgen / verborgen
-interdire,verbieden / verbood/verboden / verboden
-disparaître,verdwijnen / verdween/verdwenen / verdwenen zijn
-oublier,vergeten / vergat/vergaten / vergeten
-vendre,verkopen / verkocht/verkochten / verkocht
-quitter,verlaten / verliet/verlieten / verlaten
-perdre,verliezen / verloor/verloren / verloren
-comprendre,verstaan / verstond/verstonden / verstaan
-partir,vertrekken / vertrok/vertrokken / vertrokken zijn
-trouver,vinden / vond/vonden / gevonden
-voler (ailes),vliegen / vloog/vlogen / gevlogen
-demander,vragen / vroeg/vroegen / gevraagd
-laver,wassen / waste/wasten / gewassen
-jeter/lancer,werpen / wierp/wierpen / geworpen
-savoir,weten / wist/wisten / geweten
-vouloir,willen / wilde/wou/wouden / gewild
-gagner (loterie),winnen / won/wonnen / gewonnen
-devenir,worden / werd/werden / geworden zijn
-dire,zeggen / zei/zeiden / gezegd
-envoyer,zenden / zond/zonden / gezonden
-voir,zien / zag/zagen / gezien
-être,zijn / was/waren / geweest zijn
-chanter,zingen / zong/zongen / gezongen
-s'asseoir,zitten / zat/zaten / gezeten
-chercher,zoeken / zocht/zochten / gezocht
-nager,zwemmen / zwom/zwommen / gezwommen
-se taire,zwijgen / zweeg/zwegen / gezwegen
-\`;
+export interface LeaderboardScore {
+  time: number; // in seconds
+  date: string; // ISO string date
+  name: string;
+}
+`,
+  'utils/leaderboard.ts': `import type { LeaderboardScore } from '../types';
 
-export const verbList: Verb[] = rawVerbsData
-  .trim()
-  .split('\\n')
-  .map(line => {
-    const [fr, nlPart] = line.split(',');
-    // Use ' / ' as a separator to correctly handle preterite forms like 'kocht/kochten'.
-    const nlChunks = nlPart.trim().split(' / ');
+const LEADERBOARD_KEY_PREFIX = 'leaderboard_';
+const USERNAME_KEY = 'leaderboard_username';
+const MAX_SCORES = 10;
 
-    const participleRaw = nlChunks[2] || '-';
+class LeaderboardManager {
+  private getKey(game: string): string {
+    return \`\${LEADERBOARD_KEY_PREFIX}\${game}\`;
+  }
 
-    return {
-      fr: fr.trim(),
-      nl: {
-        infinitive: nlChunks[0] || '-',
-        preterite: nlChunks[1] || '-',
-        // Handle cases where the participle is missing or represented by a '/'.
-        participle: participleRaw === '/' ? '-' : participleRaw,
-      },
+  public getScores(game: string): LeaderboardScore[] {
+    try {
+      const stored = localStorage.getItem(this.getKey(game));
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      console.error('Error parsing leaderboard data', e);
+      return [];
+    }
+  }
+
+  public getUserName(): string {
+    return localStorage.getItem(USERNAME_KEY) || 'Anonyme';
+  }
+
+  public setUserName(name: string): void {
+    if (name && name.trim()) {
+        localStorage.setItem(USERNAME_KEY, name.trim());
+    }
+  }
+
+  public addScore(game: string, time: number): void {
+    if (time <= 0) return;
+    const scores = this.getScores(game);
+    const newScore: LeaderboardScore = {
+      time,
+      date: new Date().toISOString(),
+      name: this.getUserName(),
     };
-  });
+    
+    scores.push(newScore);
+    // Sort by time, ascending.
+    scores.sort((a, b) => a.time - b.time);
+    
+    const topScores = scores.slice(0, MAX_SCORES);
+    
+    try {
+      localStorage.setItem(this.getKey(game), JSON.stringify(topScores));
+    } catch (e) {
+      console.error('Error saving leaderboard data', e);
+    }
+  }
+}
 
-const chunk = <T>(arr: T[], size: number): T[][] =>
-  Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
-    arr.slice(i * size, i * size + size)
-  );
-
-export const verbSeries: Verb[][] = chunk(verbList, 10);`,
-  // ... and so on for all other files that haven't changed.
+export const leaderboardManager = new LeaderboardManager();`,
 };
 
 interface SourceCodeModalProps {
@@ -864,6 +694,21 @@ const SourceCodeModal: React.FC<SourceCodeModalProps> = ({ onClose }) => {
     });
   };
 
+  const fileOrder = [
+    'index.html', 'index.tsx', 'metadata.json', 'App.tsx', 'types.ts',
+    'data/verbs.ts', 'data/trophies.ts',
+    'utils/gamification.ts', 'utils/srs.ts', 'utils/leaderboard.ts',
+    'components/Header.tsx', 'components/Footer.tsx', 'components/SeriesSelector.tsx', 
+    'components/FlipCardView.tsx', 'components/Quiz.tsx', 'components/MatchingGame.tsx', 
+    'components/Hangman.tsx', 'components/Evaluation.tsx', 'components/TrophiesPage.tsx',
+    'components/SearchBar.tsx', 'components/SearchResultItem.tsx',
+    'components/TrophyNotification.tsx', 'components/LeaderboardPodium.tsx', 
+    'components/ExampleSentenceGenerator.tsx', 'components/SourceCodeModal.tsx'
+  ];
+
+  const sortedFiles = fileOrder.filter(f => sourceCodeData[f]);
+
+
   return (
     <div 
       className="fixed inset-0 bg-black/50 z-50 flex justify-center items-center p-4"
@@ -881,13 +726,13 @@ const SourceCodeModal: React.FC<SourceCodeModalProps> = ({ onClose }) => {
           <aside className="w-1/4 md:w-1/5 bg-slate-100 p-4 overflow-y-auto">
             <h3 className="font-semibold mb-2 text-slate-600">Fichiers</h3>
             <ul>
-              {Object.keys(sourceCodeData).map(filename => (
+              {sortedFiles.map(filename => (
                 <li key={filename}>
                   <button 
                     onClick={() => setActiveFile(filename)}
                     className={`w-full text-left px-2 py-1 rounded text-sm ${activeFile === filename ? 'bg-orange-200 text-orange-800 font-semibold' : 'text-slate-700 hover:bg-slate-200'}`}
                   >
-                    {filename}
+                    {filename.replace('components/', '').replace('utils/', '').replace('data/', '')}
                   </button>
                 </li>
               ))}

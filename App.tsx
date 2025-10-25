@@ -5,8 +5,8 @@ import Header from './components/Header';
 import SearchBar from './components/SearchBar';
 import Footer from './components/Footer';
 import Quiz from './components/Quiz';
-import FillTheBlanks from './components/FillTheBlanks';
-import FocusView from './components/FocusView';
+import MatchingGame from './components/MatchingGame';
+import FlipCardView from './components/FlipCardView';
 import Hangman from './components/Hangman';
 import SeriesSelector from './components/SeriesSelector';
 import SearchResultItem from './components/SearchResultItem';
@@ -16,7 +16,7 @@ import TrophyNotification from './components/TrophyNotification';
 import { gamificationManager } from './utils/gamification';
 import SourceCodeModal from './components/SourceCodeModal';
 
-type View = 'focus' | 'list' | 'quiz' | 'fill-blanks' | 'hangman' | 'srs' | 'trophies';
+type View = 'focus' | 'list' | 'quiz' | 'matching' | 'hangman' | 'srs' | 'trophies';
 
 const App: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -92,7 +92,7 @@ const App: React.FC = () => {
     );
   };
   
-  const isExerciseView = ['focus', 'quiz', 'hangman', 'fill-blanks', 'srs'].includes(activeView);
+  const isExerciseView = ['focus', 'quiz', 'hangman', 'matching', 'srs'].includes(activeView);
   
   return (
     <div className="min-h-screen flex flex-col">
@@ -103,9 +103,9 @@ const App: React.FC = () => {
 
         {/* Tab Navigation */}
         <div className="flex justify-center flex-wrap gap-x-4 gap-y-2 mb-8">
-          <TabButton view="focus" label="Étude Focus" />
+          <TabButton view="focus" label="Flashcards" />
           <TabButton view="quiz" label="Quiz" />
-          <TabButton view="fill-blanks" label="Phrases à Compléter" />
+          <TabButton view="matching" label="Jeu d'Association" />
           <TabButton view="hangman" label="Jeu du Pendu" />
           <TabButton view="srs" label="Évaluation" />
           <TabButton view="trophies" label="Trophées" />
@@ -157,10 +157,10 @@ const App: React.FC = () => {
                   </h2>
                 </div>
 
-                {activeView === 'focus' && <FocusView verbs={activeVerbs} />}
+                {activeView === 'focus' && <FlipCardView verbs={activeVerbs} />}
                 {activeView === 'quiz' && <Quiz verbs={activeVerbs} />}
                 {activeView === 'hangman' && <Hangman verbs={activeVerbs} />}
-                {activeView === 'fill-blanks' && <FillTheBlanks verbs={activeVerbs} />}
+                {activeView === 'matching' && <MatchingGame verbs={activeVerbs} />}
                 {activeView === 'srs' && <Evaluation verbs={activeVerbs} />}
               </>
             )}
