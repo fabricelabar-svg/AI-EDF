@@ -42,3 +42,9 @@ export interface LeaderboardScore {
   date: string; // ISO string date
   name: string;
 }
+
+export interface WordOrderSentence {
+  infinitive: string;
+  nl: string;
+  fr: string;
+}

@@ -179,54 +179,58 @@ const Hangman: React.FC<{ verbs: Verb[] }> = ({ verbs }) => {
     }
 
     return (
-        <div className="max-w-3xl mx-auto text-center">
-            <h2 className="text-3xl font-bold mb-4">Jeu du Pendu</h2>
+        <div className="max-w-4xl mx-auto text-center">
+            <h2 className="text-3xl font-bold mb-2">Jeu du Pendu</h2>
             <p className="text-slate-600 mb-6">Devinez le verbe néerlandais (prétérit ou participe passé).</p>
             
-            <div className="h-48 sm:h-64 mb-6 text-slate-700">
-                <Windmill wrongGuesses={wrongGuesses} />
-            </div>
-
-            <div className="flex justify-center gap-2 mb-8" aria-label="Mot à deviner">
-                {displayedWord}
-            </div>
-
-            {gameState === 'playing' ? (
-                <div className="flex flex-wrap justify-center gap-2 max-w-lg mx-auto" role="group">
-                    {ALPHABET.map(letter => (
-                        <button
-                            key={letter}
-                            onClick={() => handleGuess(letter)}
-                            disabled={guessedLetters.has(letter)}
-                            className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-white border-2 border-slate-300 text-lg font-bold uppercase transition-colors duration-200 enabled:hover:bg-orange-100 disabled:bg-slate-200 disabled:text-slate-400"
-                        >
-                            {letter}
-                        </button>
-                    ))}
+            <div className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8">
+                <div className="w-full md:w-1/3 h-48 sm:h-64 text-slate-700">
+                    <Windmill wrongGuesses={wrongGuesses} />
                 </div>
-            ) : (
-                <div className="bg-white p-8 rounded-xl shadow-lg">
-                    {gameState === 'won' && <h3 className="text-3xl font-bold text-green-600">🎉 Proficiat!</h3>}
-                    {gameState === 'lost' && <h3 className="text-3xl font-bold text-red-600">Dommage...</h3>}
-                    <p className="mt-2 text-lg">Le mot était : <span className="font-extrabold text-orange-600 text-2xl">{wordToGuess}</span></p>
-                    
-                    {verbInfo && (
-                        <div className="mt-4 text-left border-t pt-4 space-y-1 text-slate-600">
-                           <p><span className="font-semibold">Infinitif:</span> {verbInfo.nl.infinitive}</p>
-                           <p><span className="font-semibold">Prétérit:</span> {verbInfo.nl.preterite}</p>
-                           <p><span className="font-semibold">Participe Passé:</span> {verbInfo.nl.participle}</p>
-                           <p><span className="font-semibold">Français:</span> {verbInfo.fr}</p>
+                
+                <div className="w-full md:w-2/3 flex flex-col items-center justify-center min-h-[250px]">
+                    <div className="flex justify-center gap-2 mb-8" aria-label="Mot à deviner">
+                        {displayedWord}
+                    </div>
+
+                    {gameState === 'playing' ? (
+                        <div className="flex flex-wrap justify-center gap-2 max-w-lg mx-auto" role="group">
+                            {ALPHABET.map(letter => (
+                                <button
+                                    key={letter}
+                                    onClick={() => handleGuess(letter)}
+                                    disabled={guessedLetters.has(letter)}
+                                    className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-white border-2 border-slate-300 text-lg font-bold uppercase transition-colors duration-200 enabled:hover:bg-orange-100 disabled:bg-slate-200 disabled:text-slate-400"
+                                >
+                                    {letter}
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+                            {gameState === 'won' && <h3 className="text-3xl font-bold text-green-600">🎉 Proficiat!</h3>}
+                            {gameState === 'lost' && <h3 className="text-3xl font-bold text-red-600">Dommage...</h3>}
+                            <p className="mt-2 text-lg">Le mot était : <span className="font-extrabold text-orange-600 text-2xl">{wordToGuess}</span></p>
+                            
+                            {verbInfo && (
+                                <div className="mt-4 text-left border-t pt-4 space-y-1 text-slate-600">
+                                   <p><span className="font-semibold">Infinitif:</span> {verbInfo.nl.infinitive}</p>
+                                   <p><span className="font-semibold">Prétérit:</span> {verbInfo.nl.preterite}</p>
+                                   <p><span className="font-semibold">Participe Passé:</span> {verbInfo.nl.participle}</p>
+                                   <p><span className="font-semibold">Français:</span> {verbInfo.fr}</p>
+                                </div>
+                            )}
+
+                            <button
+                                onClick={handlePlayAgain}
+                                className="w-full mt-6 bg-orange-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-orange-700 transition-colors duration-300 shadow-md"
+                            >
+                                Rejouer
+                            </button>
                         </div>
                     )}
-
-                    <button
-                        onClick={handlePlayAgain}
-                        className="w-full mt-6 bg-orange-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-orange-700 transition-colors duration-300 shadow-md"
-                    >
-                        Rejouer
-                    </button>
                 </div>
-            )}
+            </div>
         </div>
     );
 };

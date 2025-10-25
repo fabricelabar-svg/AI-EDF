@@ -8,6 +8,7 @@ import Quiz from './components/Quiz';
 import MatchingGame from './components/MatchingGame';
 import FlipCardView from './components/FlipCardView';
 import Hangman from './components/Hangman';
+import WordOrder from './components/WordOrder';
 import SeriesSelector from './components/SeriesSelector';
 import SearchResultItem from './components/SearchResultItem';
 import Evaluation from './components/Evaluation';
@@ -16,7 +17,7 @@ import TrophyNotification from './components/TrophyNotification';
 import { gamificationManager } from './utils/gamification';
 import SourceCodeModal from './components/SourceCodeModal';
 
-type View = 'focus' | 'list' | 'quiz' | 'matching' | 'hangman' | 'srs' | 'trophies';
+type View = 'focus' | 'list' | 'quiz' | 'matching' | 'hangman' | 'srs' | 'trophies' | 'word-order';
 
 const App: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -92,7 +93,7 @@ const App: React.FC = () => {
     );
   };
   
-  const isExerciseView = ['focus', 'quiz', 'hangman', 'matching', 'srs'].includes(activeView);
+  const isExerciseView = ['focus', 'quiz', 'hangman', 'matching', 'srs', 'word-order'].includes(activeView);
   
   return (
     <div className="min-h-screen flex flex-col">
@@ -107,6 +108,7 @@ const App: React.FC = () => {
           <TabButton view="quiz" label="Quiz" />
           <TabButton view="matching" label="Jeu d'Association" />
           <TabButton view="hangman" label="Jeu du Pendu" />
+          <TabButton view="word-order" label="Ordre des Mots" />
           <TabButton view="srs" label="Évaluation" />
           <TabButton view="trophies" label="Trophées" />
           <TabButton view="list" label="Rechercher" />
@@ -161,6 +163,7 @@ const App: React.FC = () => {
                 {activeView === 'quiz' && <Quiz verbs={activeVerbs} />}
                 {activeView === 'hangman' && <Hangman verbs={activeVerbs} />}
                 {activeView === 'matching' && <MatchingGame verbs={activeVerbs} />}
+                {activeView === 'word-order' && <WordOrder verbs={activeVerbs} />}
                 {activeView === 'srs' && <Evaluation verbs={activeVerbs} />}
               </>
             )}
