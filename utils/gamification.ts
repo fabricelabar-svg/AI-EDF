@@ -92,7 +92,7 @@ class GamificationManager {
   public recordView(view: string): void {
     try {
       // We only care about exercise views for the explorer trophy
-      const exerciseViews = ['flashcards', 'quiz', 'sentences', 'hangman', 'srs'];
+      const exerciseViews = ['focus', 'quiz', 'fill-blanks', 'hangman', 'srs'];
       if (!exerciseViews.includes(view)) return;
 
       const stored = localStorage.getItem(VIEWS_KEY);

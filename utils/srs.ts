@@ -83,11 +83,16 @@ class SrsManager {
       return now >= nextReviewDate;
     });
     
-    // Prioritize verbs with lower mastery level
+    // Prioritize verbs with lower mastery level.
+    // If mastery levels are equal, shuffle the order to provide variety.
     verbsToReview.sort((a, b) => {
         const masteryA = allUserData[a.nl.infinitive]?.masteryLevel ?? 0;
         const masteryB = allUserData[b.nl.infinitive]?.masteryLevel ?? 0;
-        return masteryA - masteryB;
+        
+        if (masteryA < masteryB) return -1;
+        if (masteryA > masteryB) return 1;
+
+        return Math.random() - 0.5;
     });
     
     return verbsToReview;

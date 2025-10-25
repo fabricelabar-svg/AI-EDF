@@ -5,8 +5,8 @@ import Header from './components/Header';
 import SearchBar from './components/SearchBar';
 import Footer from './components/Footer';
 import Quiz from './components/Quiz';
-import SentenceExercise from './components/SentenceExercise';
-import Flashcards from './components/Flashcards';
+import FillTheBlanks from './components/FillTheBlanks';
+import FocusView from './components/FocusView';
 import Hangman from './components/Hangman';
 import SeriesSelector from './components/SeriesSelector';
 import SearchResultItem from './components/SearchResultItem';
@@ -15,11 +15,11 @@ import TrophiesPage from './components/TrophiesPage';
 import TrophyNotification from './components/TrophyNotification';
 import { gamificationManager } from './utils/gamification';
 
-type View = 'flashcards' | 'list' | 'quiz' | 'sentences' | 'hangman' | 'srs' | 'trophies';
+type View = 'focus' | 'list' | 'quiz' | 'fill-blanks' | 'hangman' | 'srs' | 'trophies';
 
 const App: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeView, setActiveView] = useState<View>('flashcards');
+  const [activeView, setActiveView] = useState<View>('focus');
   const [selectedSeriesIndices, setSelectedSeriesIndices] = useState<number[]>([]);
 
   // --- GAMIFICATION STATE ---
@@ -39,7 +39,7 @@ const App: React.FC = () => {
     window.addEventListener('trophyUnlocked', handleTrophyUnlock);
 
     // Record initial view
-    gamificationManager.recordView('flashcards');
+    gamificationManager.recordView('focus');
 
     return () => {
       window.removeEventListener('trophyUnlocked', handleTrophyUnlock);
@@ -90,7 +90,7 @@ const App: React.FC = () => {
     );
   };
   
-  const isExerciseView = ['flashcards', 'quiz', 'hangman', 'sentences', 'srs'].includes(activeView);
+  const isExerciseView = ['focus', 'quiz', 'hangman', 'fill-blanks', 'srs'].includes(activeView);
   
   return (
     <div className="min-h-screen flex flex-col">
@@ -100,9 +100,9 @@ const App: React.FC = () => {
 
         {/* Tab Navigation */}
         <div className="flex justify-center flex-wrap gap-x-4 gap-y-2 mb-8">
-          <TabButton view="flashcards" label="Flashcards" />
+          <TabButton view="focus" label="Étude Focus" />
           <TabButton view="quiz" label="Quiz" />
-          <TabButton view="sentences" label="Création de phrases" />
+          <TabButton view="fill-blanks" label="Phrases à Compléter" />
           <TabButton view="hangman" label="Jeu du Pendu" />
           <TabButton view="srs" label="Évaluation" />
           <TabButton view="trophies" label="Trophées" />
@@ -154,10 +154,10 @@ const App: React.FC = () => {
                   </h2>
                 </div>
 
-                {activeView === 'flashcards' && <Flashcards verbs={activeVerbs} />}
+                {activeView === 'focus' && <FocusView verbs={activeVerbs} />}
                 {activeView === 'quiz' && <Quiz verbs={activeVerbs} />}
                 {activeView === 'hangman' && <Hangman verbs={activeVerbs} />}
-                {activeView === 'sentences' && <SentenceExercise verbs={activeVerbs} />}
+                {activeView === 'fill-blanks' && <FillTheBlanks verbs={activeVerbs} />}
                 {activeView === 'srs' && <Evaluation verbs={activeVerbs} />}
               </>
             )}
